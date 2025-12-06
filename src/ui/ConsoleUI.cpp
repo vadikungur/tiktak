@@ -11,7 +11,9 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
+#include <stdexcept>
 
 namespace ui {
 
@@ -110,7 +112,7 @@ void ConsoleUI::handleCommand(const std::string& line)
     } else if (command == "edit" && tokens.size() >= 5) {
         commandEdit(toLower(tokens[1]), tokens[2], toLower(tokens[3]), tokens[4]);
     } else if (command == "write" && tokens.size() >= 3) {
-        commandWrite(tokens[1], std::stod(tokens[2]));
+        commandWrite(tokens[1], tokens[2]);
     } else if (command == "snapshot") {
         commandSnapshot();
     } else if (command == "create" && tokens.size() >= 3 && toLower(tokens[1]) == "algorithm") {
@@ -163,19 +165,44 @@ void ConsoleUI::commandEdit(const std::string& kind, const std::string& id, cons
         if (field == "name") {
             device->name = value;
         } else if (field == "channel") {
-            device->channel = devices::channelFromString(value);
+            try {
+                device->channel = devices::channelFromString(value);
+            } catch (const std::exception& ex) {
+                std::cout << ex.what() << std::endl;
+                return;
+            }
         } else if (field == "ip") {
             device->ipAddress = value;
         } else if (field == "port") {
-            device->port = static_cast<std::uint16_t>(std::stoi(value));
+            auto port = parsePort(value);
+            if (!port) {
+                std::cout << "Invalid port value." << std::endl;
+                return;
+            }
+            device->port = *port;
         } else if (field == "driver") {
             device->driver = value;
         } else if (field == "scale") {
-            device->scale = std::stod(value);
+            auto parsed = parseDouble(value);
+            if (!parsed) {
+                std::cout << "Invalid numeric value." << std::endl;
+                return;
+            }
+            device->scale = *parsed;
         } else if (field == "offset") {
-            device->offset = std::stod(value);
+            auto parsed = parseDouble(value);
+            if (!parsed) {
+                std::cout << "Invalid numeric value." << std::endl;
+                return;
+            }
+            device->offset = *parsed;
         } else if (field == "poll") {
-            device->pollInterval = std::chrono::milliseconds(std::stoll(value));
+            auto parsed = parseInt64(value);
+            if (!parsed || *parsed < 0) {
+                std::cout << "Invalid poll interval." << std::endl;
+                return;
+            }
+            device->pollInterval = std::chrono::milliseconds(*parsed);
         } else {
             std::cout << "Unsupported field for sensor." << std::endl;
             return;
@@ -193,19 +220,44 @@ void ConsoleUI::commandEdit(const std::string& kind, const std::string& id, cons
         if (field == "name") {
             device->name = value;
         } else if (field == "channel") {
-            device->channel = devices::channelFromString(value);
+            try {
+                device->channel = devices::channelFromString(value);
+            } catch (const std::exception& ex) {
+                std::cout << ex.what() << std::endl;
+                return;
+            }
         } else if (field == "ip") {
             device->ipAddress = value;
         } else if (field == "port") {
-            device->port = static_cast<std::uint16_t>(std::stoi(value));
+            auto port = parsePort(value);
+            if (!port) {
+                std::cout << "Invalid port value." << std::endl;
+                return;
+            }
+            device->port = *port;
         } else if (field == "driver") {
             device->driver = value;
         } else if (field == "min") {
-            device->minimum = std::stod(value);
+            auto parsed = parseDouble(value);
+            if (!parsed) {
+                std::cout << "Invalid numeric value." << std::endl;
+                return;
+            }
+            device->minimum = *parsed;
         } else if (field == "max") {
-            device->maximum = std::stod(value);
+            auto parsed = parseDouble(value);
+            if (!parsed) {
+                std::cout << "Invalid numeric value." << std::endl;
+                return;
+            }
+            device->maximum = *parsed;
         } else if (field == "default") {
-            device->defaultValue = std::stod(value);
+            auto parsed = parseDouble(value);
+            if (!parsed) {
+                std::cout << "Invalid numeric value." << std::endl;
+                return;
+            }
+            device->defaultValue = *parsed;
         } else {
             std::cout << "Unsupported field for actuator." << std::endl;
             return;
@@ -217,13 +269,55 @@ void ConsoleUI::commandEdit(const std::string& kind, const std::string& id, cons
     }
 }
 
-void ConsoleUI::commandWrite(const std::string& id, double value)
+void ConsoleUI::commandWrite(const std::string& id, const std::string& valueText)
 {
-    if (actuation_.writeValue(id, value, services::ActuationService::WriteSource::Manual)) {
+    auto parsed = parseDouble(valueText);
+    if (!parsed) {
+        std::cout << "Invalid numeric value." << std::endl;
+        return;
+    }
+    if (actuation_.writeValue(id, *parsed, services::ActuationService::WriteSource::Manual)) {
         std::cout << "Value sent to actuator." << std::endl;
     } else {
         std::cout << "Failed to send value." << std::endl;
     }
+}
+
+std::optional<double> ConsoleUI::parseDouble(std::string_view text)
+{
+    try {
+        size_t processed = 0;
+        double value = std::stod(std::string(text), &processed);
+        if (processed != text.size()) {
+            return std::nullopt;
+        }
+        return value;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<std::int64_t> ConsoleUI::parseInt64(std::string_view text)
+{
+    try {
+        size_t processed = 0;
+        long long value = std::stoll(std::string(text), &processed);
+        if (processed != text.size()) {
+            return std::nullopt;
+        }
+        return static_cast<std::int64_t>(value);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<std::uint16_t> ConsoleUI::parsePort(std::string_view text)
+{
+    auto value = parseInt64(text);
+    if (!value || *value < 0 || *value > std::numeric_limits<std::uint16_t>::max()) {
+        return std::nullopt;
+    }
+    return static_cast<std::uint16_t>(*value);
 }
 
 void ConsoleUI::commandSnapshot() const
